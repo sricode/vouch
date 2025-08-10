@@ -1,4 +1,4 @@
-// src/components/Friends.js
+// src/components/Friends.js - Fixed search logic
 import { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { 
@@ -89,20 +89,67 @@ export default function Friends() {
     setSearchResult(null);
 
     try {
-      // Clean the search input (remove @ if present)
-      const cleanUsername = searchUsername.replace('@', '').toLowerCase().trim();
-      const searchEmail = `${cleanUsername}@gmail.com`;
+      const rawInput = searchUsername.toLowerCase().trim();
+      console.log('Raw input:', rawInput);
+      
+      // Try multiple search strategies
+      let foundUser = null;
+      let searchEmail = '';
 
-      // Check if user exists in users collection
-      const userQuery = query(
-        collection(db, 'users'),
-        where('email', '==', searchEmail)
-      );
+      // Strategy 1: If input is a full email, search by email directly
+      if (rawInput.includes('@')) {
+        console.log('Strategy 1: Searching by full email...');
+        const emailQuery = query(
+          collection(db, 'users'),
+          where('email', '==', rawInput)
+        );
+        const emailSnapshot = await getDocs(emailQuery);
+        
+        if (!emailSnapshot.empty) {
+          foundUser = emailSnapshot.docs[0].data();
+          searchEmail = foundUser.email;
+          console.log('Found by email:', foundUser);
+        }
+      }
+      
+      // Strategy 2: Search by handle (username part before @)
+      if (!foundUser) {
+        const cleanHandle = rawInput.replace('@', '').split('@')[0]; // Get part before @
+        console.log('Strategy 2: Searching by handle:', cleanHandle);
+        
+        const handleQuery = query(
+          collection(db, 'users'),
+          where('handle', '==', cleanHandle)
+        );
+        const handleSnapshot = await getDocs(handleQuery);
+        
+        if (!handleSnapshot.empty) {
+          foundUser = handleSnapshot.docs[0].data();
+          searchEmail = foundUser.email;
+          console.log('Found by handle:', foundUser);
+        }
+      }
+      
+      // Strategy 3: Try adding @gmail.com only if no @ was in original input
+      if (!foundUser && !rawInput.includes('@')) {
+        console.log('Strategy 3: Trying with @gmail.com...');
+        const gmailEmail = `${rawInput}@gmail.com`;
+        const gmailQuery = query(
+          collection(db, 'users'),
+          where('email', '==', gmailEmail)
+        );
+        const gmailSnapshot = await getDocs(gmailQuery);
+        
+        if (!gmailSnapshot.empty) {
+          foundUser = gmailSnapshot.docs[0].data();
+          searchEmail = gmailEmail;
+          console.log('Found with @gmail.com:', foundUser);
+        }
+      }
 
-      const userSnapshot = await getDocs(userQuery);
-
-      if (userSnapshot.empty) {
-        setMessage(`❌ User @${cleanUsername} not found`);
+      if (!foundUser) {
+        setMessage(`❌ User "${rawInput}" not found. Make sure they've signed up for Vouch!`);
+        console.log('User not found with any strategy');
       } else if (searchEmail === currentUser.email) {
         setMessage(`❌ You can't add yourself as a friend!`);
       } else {
@@ -118,16 +165,17 @@ export default function Friends() {
         if (!friendshipSnapshot.empty) {
           const friendship = friendshipSnapshot.docs[0].data();
           if (friendship.status === 'accepted') {
-            setMessage(`✅ Already friends with @${cleanUsername}`);
+            setMessage(`✅ Already friends with @${foundUser.handle}`);
           } else {
-            setMessage(`⏳ Friend request pending with @${cleanUsername}`);
+            setMessage(`⏳ Friend request pending with @${foundUser.handle}`);
           }
         } else {
           setSearchResult({
             email: searchEmail,
-            handle: cleanUsername
+            handle: foundUser.handle,
+            displayName: foundUser.displayName
           });
-          setMessage(`✅ Found @${cleanUsername}!`);
+          setMessage(`✅ Found @${foundUser.handle}!`);
         }
       }
     } catch (error) {
@@ -221,118 +269,127 @@ export default function Friends() {
         <InviteFriends />
       ) : (
         <div>
-          {/* Existing Friends Management Content */}
-
-      {/* Add Friend Section */}
-      <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>🔍 Find Friends</h3>
-        <div style={styles.searchContainer}>
-          <input
-            type="text"
-            value={searchUsername}
-            onChange={(e) => setSearchUsername(e.target.value)}
-            placeholder="Enter username (e.g., testmail)"
-            style={styles.searchInput}
-            onKeyPress={(e) => e.key === 'Enter' && searchForUser()}
-          />
-          <button 
-            onClick={searchForUser}
-            disabled={loading || !searchUsername.trim()}
-            style={{
-              ...styles.searchButton,
-              backgroundColor: (loading || !searchUsername.trim()) ? '#ccc' : '#007bff'
-            }}
-          >
-            {loading ? '⏳' : '🔍'}
-          </button>
-        </div>
-
-        {message && (
-          <div style={styles.message}>
-            {message}
-          </div>
-        )}
-
-        {searchResult && (
-          <div style={styles.searchResult}>
-            <div style={styles.userCard}>
-              <span style={styles.username}>@{searchResult.handle}</span>
+          {/* Add Friend Section */}
+          <div style={styles.section}>
+            <h3 style={styles.sectionTitle}>🔍 Find Friends</h3>
+            <div style={styles.searchContainer}>
+              <input
+                type="text"
+                value={searchUsername}
+                onChange={(e) => setSearchUsername(e.target.value)}
+                placeholder="Enter username or email (e.g., test15, test15@gmail.com)"
+                style={styles.searchInput}
+                onKeyPress={(e) => e.key === 'Enter' && searchForUser()}
+              />
               <button 
-                onClick={() => sendFriendRequest(searchResult.email)}
-                style={styles.addButton}
+                onClick={searchForUser}
+                disabled={loading || !searchUsername.trim()}
+                style={{
+                  ...styles.searchButton,
+                  backgroundColor: (loading || !searchUsername.trim()) ? '#ccc' : '#007bff'
+                }}
               >
-                ➕ Add Friend
+                {loading ? '⏳' : '🔍'}
               </button>
             </div>
-          </div>
-        )}
-      </div>
 
-      {/* Friend Requests Section */}
-      {friendRequests.length > 0 && (
-        <div style={styles.section}>
-          <h3 style={styles.sectionTitle}>📬 Friend Requests</h3>
-          {friendRequests.map(request => (
-            <div key={request.id} style={styles.requestCard}>
-              <span style={styles.username}>@{request.fromHandle}</span>
-              <div style={styles.requestButtons}>
-                <button 
-                  onClick={() => acceptFriendRequest(request.id)}
-                  style={styles.acceptButton}
-                >
-                  ✅ Accept
-                </button>
-                <button 
-                  onClick={() => declineFriendRequest(request.id)}
-                  style={styles.declineButton}
-                >
-                  ❌ Decline
-                </button>
+            {message && (
+              <div style={styles.message}>
+                {message}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            )}
 
-      {/* Friends List Section */}
-      <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>
-          ✅ Your Friends ({friends.length})
-        </h3>
-        {friends.length === 0 ? (
-          <div style={styles.empty}>
-            <p>No friends yet. Start by adding some friends above!</p>
-            <p style={styles.hint}>
-              💡 Tell your friends to sign up and you can find them by their username
-            </p>
-          </div>
-        ) : (
-          <div style={styles.friendsList}>
-            {friends.map(friend => (
-              <div key={friend.id} style={styles.friendCard}>
-                <div style={styles.friendInfo}>
-                  <span style={styles.username}>@{friend.handle}</span>
-                  <span style={styles.friendSince}>
-                    Friends since {new Date(friend.since?.seconds * 1000 || Date.now()).toLocaleDateString()}
-                  </span>
+            {searchResult && (
+              <div style={styles.searchResult}>
+                <div style={styles.userCard}>
+                  <div style={styles.userCardInfo}>
+                    <span style={styles.username}>@{searchResult.handle}</span>
+                    {searchResult.displayName && (
+                      <span style={styles.displayName}>{searchResult.displayName}</span>
+                    )}
+                    <span style={styles.userEmail}>{searchResult.email}</span>
+                  </div>
+                  <button 
+                    onClick={() => sendFriendRequest(searchResult.email)}
+                    style={styles.addButton}
+                  >
+                    ➕ Add Friend
+                  </button>
                 </div>
-                <span style={styles.status}>🟢 Connected</span>
               </div>
-            ))}
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Instructions */}
-      <div style={styles.instructions}>
-        <h4>How to add friends:</h4>
-        <ol>
-          <li>Ask your friend to sign up for Vouch</li>
-          <li>Get their username (the part before @ in their email)</li>
-          <li>Search for them above and send a friend request</li>
-          <li>Once connected, you'll see each other's recommendations!</li>
-        </ol>
-      </div>
+          {/* Friend Requests Section */}
+          {friendRequests.length > 0 && (
+            <div style={styles.section}>
+              <h3 style={styles.sectionTitle}>📬 Friend Requests</h3>
+              {friendRequests.map(request => (
+                <div key={request.id} style={styles.requestCard}>
+                  <span style={styles.username}>@{request.fromHandle}</span>
+                  <div style={styles.requestButtons}>
+                    <button 
+                      onClick={() => acceptFriendRequest(request.id)}
+                      style={styles.acceptButton}
+                    >
+                      ✅ Accept
+                    </button>
+                    <button 
+                      onClick={() => declineFriendRequest(request.id)}
+                      style={styles.declineButton}
+                    >
+                      ❌ Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Friends List Section */}
+          <div style={styles.section}>
+            <h3 style={styles.sectionTitle}>
+              ✅ Your Friends ({friends.length})
+            </h3>
+            {friends.length === 0 ? (
+              <div style={styles.empty}>
+                <p>No friends yet. Start by adding some friends above!</p>
+                <p style={styles.hint}>
+                  💡 Tell your friends to sign up and you can find them by their username
+                </p>
+              </div>
+            ) : (
+              <div style={styles.friendsList}>
+                {friends.map(friend => (
+                  <div key={friend.id} style={styles.friendCard}>
+                    <div style={styles.friendInfo}>
+                      <span style={styles.username}>@{friend.handle}</span>
+                      <span style={styles.friendSince}>
+                        Friends since {new Date(friend.since?.seconds * 1000 || Date.now()).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <span style={styles.status}>🟢 Connected</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Updated Instructions */}
+          <div style={styles.instructions}>
+            <h4>How to add friends:</h4>
+            <ol>
+              <li>Ask your friend to sign up for Vouch</li>
+              <li>Search for them using:
+                <ul>
+                  <li><strong>Username:</strong> "test15" (the part before @)</li>
+                  <li><strong>Full email:</strong> "test15@gmail.com"</li>
+                </ul>
+              </li>
+              <li>Send them a friend request</li>
+              <li>Once connected, you'll see each other's recommendations!</li>
+            </ol>
+          </div>
         </div>
       )}
     </div>
@@ -400,15 +457,29 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '12px',
+    padding: '15px',
     backgroundColor: '#f8f9fa',
     borderRadius: '6px',
     border: '1px solid #e9ecef'
+  },
+  userCardInfo: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px'
   },
   username: {
     fontWeight: 'bold',
     color: '#007bff',
     fontSize: '16px'
+  },
+  displayName: {
+    fontSize: '14px',
+    color: '#666',
+    fontStyle: 'italic'
+  },
+  userEmail: {
+    fontSize: '12px',
+    color: '#999'
   },
   addButton: {
     padding: '6px 12px',
