@@ -1,198 +1,190 @@
-// src/components/AuthDebug.js - Debug authentication state
-import { useState, useEffect } from 'react';
+// src/components/Auth.js - Modern Mobile-First Design
+import { useState } from 'react';
 import { auth, db } from '../firebase';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
-  onAuthStateChanged,
-  signOut
+  updateProfile
 } from 'firebase/auth';
-import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
 
-export default function AuthDebug() {
-  const [email, setEmail] = useState('test@example.com');
-  const [password, setPassword] = useState('password123');
-  const [authState, setAuthState] = useState('unknown');
-  const [logs, setLogs] = useState([]);
+export default function Auth() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
+  const [isLogin, setIsLogin] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const addLog = (message, type = 'info') => {
-    const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [...prev, { timestamp, message, type }]);
-    console.log(`[${timestamp}] ${message}`);
-  };
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setAuthState('authenticated');
-        addLog(`🟢 User authenticated: ${user.email}`, 'success');
-        addLog(`🔑 User UID: ${user.uid}`, 'info');
-        addLog(`📧 Email verified: ${user.emailVerified}`, 'info');
+    try {
+      if (isLogin) {
+        await signInWithEmailAndPassword(auth, email, password);
       } else {
-        setAuthState('unauthenticated');
-        addLog('🔴 No user authenticated', 'error');
-      }
-    });
-
-    return unsubscribe;
-  }, []);
-
-  const createAccount = async () => {
-    try {
-      addLog('🚀 Starting account creation...', 'info');
-      
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      addLog(`✅ Account created successfully: ${userCredential.user.uid}`, 'success');
-      
-      // Test immediate Firestore write
-      setTimeout(async () => {
-        try {
-          addLog('🔥 Testing Firestore write...', 'info');
-          
-          const testDoc = {
-            email: userCredential.user.email,
-            uid: userCredential.user.uid,
-            timestamp: new Date(),
-            test: 'debug'
-          };
-          
-          // Try using setDoc with a specific document ID
-          await setDoc(doc(db, 'users', userCredential.user.uid), testDoc);
-          addLog('✅ Firestore write successful!', 'success');
-          
-        } catch (firestoreError) {
-          addLog(`❌ Firestore write failed: ${firestoreError.message}`, 'error');
-          addLog(`❌ Firestore error code: ${firestoreError.code}`, 'error');
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        
+        if (username) {
+          await updateProfile(userCredential.user, {
+            displayName: username
+          });
         }
-      }, 1000);
+      }
+    } catch (error) {
+      let errorMessage = 'Something went wrong';
       
-    } catch (error) {
-      addLog(`❌ Account creation failed: ${error.message}`, 'error');
-      addLog(`❌ Error code: ${error.code}`, 'error');
-    }
-  };
-
-  const signIn = async () => {
-    try {
-      addLog('🔐 Signing in...', 'info');
-      await signInWithEmailAndPassword(auth, email, password);
-      addLog('✅ Sign in successful', 'success');
-    } catch (error) {
-      addLog(`❌ Sign in failed: ${error.message}`, 'error');
-    }
-  };
-
-  const testFirestore = async () => {
-    if (!auth.currentUser) {
-      addLog('❌ No authenticated user for Firestore test', 'error');
-      return;
-    }
-
-    try {
-      addLog('🧪 Testing Firestore with current user...', 'info');
+      switch (error.code) {
+        case 'auth/email-already-in-use':
+          errorMessage = 'This email is already registered';
+          break;
+        case 'auth/weak-password':
+          errorMessage = 'Password should be at least 6 characters';
+          break;
+        case 'auth/user-not-found':
+          errorMessage = 'No account found with this email';
+          break;
+        case 'auth/wrong-password':
+          errorMessage = 'Incorrect password';
+          break;
+        case 'auth/invalid-email':
+          errorMessage = 'Please enter a valid email';
+          break;
+        default:
+          errorMessage = error.message;
+      }
       
-      const testData = {
-        message: 'Hello from debug test',
-        timestamp: new Date(),
-        userEmail: auth.currentUser.email,
-        userUID: auth.currentUser.uid
-      };
-
-      // Test 1: addDoc to users collection
-      addLog('📝 Test 1: Adding document to users collection...', 'info');
-      const docRef = await addDoc(collection(db, 'users'), testData);
-      addLog(`✅ Test 1 SUCCESS: Document ID ${docRef.id}`, 'success');
-
-      // Test 2: setDoc to specific document
-      addLog('📝 Test 2: Setting document with specific ID...', 'info');
-      await setDoc(doc(db, 'test', auth.currentUser.uid), testData);
-      addLog('✅ Test 2 SUCCESS: Document set with user UID', 'success');
-
-    } catch (error) {
-      addLog(`❌ Firestore test failed: ${error.message}`, 'error');
-      addLog(`❌ Error code: ${error.code}`, 'error');
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const signOutUser = async () => {
-    try {
-      await signOut(auth);
-      addLog('🚪 Signed out successfully', 'info');
-      setLogs([]);
-    } catch (error) {
-      addLog(`❌ Sign out failed: ${error.message}`, 'error');
-    }
+  const switchMode = () => {
+    setIsLogin(!isLogin);
+    setError('');
+    setEmail('');
+    setPassword('');
+    setUsername('');
   };
 
   return (
     <div style={styles.container}>
-      <h1>🐛 Firebase Auth & Firestore Debug</h1>
-      
-      <div style={styles.status}>
-        <h3>Current Status: 
-          <span style={authState === 'authenticated' ? styles.success : styles.error}>
-            {authState}
-          </span>
-        </h3>
-        {auth.currentUser && (
-          <div>
-            <p>Email: {auth.currentUser.email}</p>
-            <p>UID: {auth.currentUser.uid}</p>
+      <div style={styles.content}>
+        {/* Hero Section */}
+        <div style={styles.hero}>
+          <div style={styles.logoContainer}>
+            <div style={styles.logo}>💬</div>
+            <h1 style={styles.title}>Vouch</h1>
           </div>
-        )}
-      </div>
-
-      <div style={styles.controls}>
-        <div style={styles.inputGroup}>
-          <label>Email:</label>
-          <input 
-            value={email} 
-            onChange={(e) => setEmail(e.target.value)}
-            style={styles.input}
-          />
+          <p style={styles.subtitle}>
+            Get recommendations from friends, not strangers
+          </p>
+          <div style={styles.features}>
+            <div style={styles.feature}>
+              <span style={styles.featureIcon}>🔍</span>
+              <span>Discover</span>
+            </div>
+            <div style={styles.feature}>
+              <span style={styles.featureIcon}>👥</span>
+              <span>Connect</span>
+            </div>
+            <div style={styles.feature}>
+              <span style={styles.featureIcon}>💡</span>
+              <span>Share</span>
+            </div>
+          </div>
         </div>
         
-        <div style={styles.inputGroup}>
-          <label>Password:</label>
-          <input 
-            type="password"
-            value={password} 
-            onChange={(e) => setPassword(e.target.value)}
-            style={styles.input}
-          />
-        </div>
-
-        <div style={styles.buttons}>
-          <button onClick={createAccount} style={styles.button}>
-            🆕 Create Account
-          </button>
-          <button onClick={signIn} style={styles.button}>
-            🔐 Sign In
-          </button>
-          <button onClick={testFirestore} style={styles.button}>
-            🧪 Test Firestore
-          </button>
-          <button onClick={signOutUser} style={styles.button}>
-            🚪 Sign Out
-          </button>
-        </div>
-      </div>
-
-      <div style={styles.logs}>
-        <h3>Debug Logs:</h3>
-        <div style={styles.logContainer}>
-          {logs.map((log, index) => (
-            <div 
-              key={index} 
+        {/* Auth Card */}
+        <div style={styles.authCard}>
+          <div style={styles.authHeader}>
+            <h2 style={styles.authTitle}>
+              {isLogin ? 'Welcome back' : 'Join Vouch'}
+            </h2>
+            <p style={styles.authSubtitle}>
+              {isLogin ? 'Sign in to your account' : 'Create your account'}
+            </p>
+          </div>
+          
+          <form onSubmit={handleSubmit} style={styles.form}>
+            {!isLogin && (
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Display Name</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Your name"
+                  style={styles.input}
+                  required={!isLogin}
+                />
+              </div>
+            )}
+            
+            <div style={styles.inputGroup}>
+              <label style={styles.label}>Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="your@email.com"
+                style={styles.input}
+                required
+              />
+            </div>
+            
+            <div style={styles.inputGroup}>
+              <label style={styles.label}>Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                style={styles.input}
+                required
+              />
+            </div>
+            
+            {error && (
+              <div style={styles.error}>
+                <span style={styles.errorIcon}>⚠️</span>
+                <span>{error}</span>
+              </div>
+            )}
+            
+            <button 
+              type="submit" 
+              disabled={loading}
               style={{
-                ...styles.logEntry,
-                color: log.type === 'success' ? 'green' : log.type === 'error' ? 'red' : 'black'
+                ...styles.submitButton,
+                opacity: loading ? 0.7 : 1,
               }}
             >
-              <span style={styles.timestamp}>{log.timestamp}</span>
-              <span>{log.message}</span>
-            </div>
-          ))}
+              {loading ? (
+                <div style={styles.loadingContent}>
+                  <div style={styles.spinner}></div>
+                  <span>{isLogin ? 'Signing in...' : 'Creating account...'}</span>
+                </div>
+              ) : (
+                <span>{isLogin ? 'Sign In' : 'Create Account'}</span>
+              )}
+            </button>
+          </form>
+          
+          <div style={styles.switchSection}>
+            <p style={styles.switchText}>
+              {isLogin ? "Don't have an account?" : "Already have an account?"}
+            </p>
+            <button 
+              type="button" 
+              onClick={switchMode}
+              style={styles.switchButton}
+            >
+              {isLogin ? 'Create Account' : 'Sign In'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -201,71 +193,222 @@ export default function AuthDebug() {
 
 const styles = {
   container: {
-    padding: '20px',
-    maxWidth: '800px',
-    margin: '0 auto',
-    fontFamily: 'monospace',
-  },
-  status: {
-    backgroundColor: '#f5f5f5',
-    padding: '15px',
-    borderRadius: '8px',
-    marginBottom: '20px',
-  },
-  success: {
-    color: 'green',
-    fontWeight: 'bold',
-  },
-  error: {
-    color: 'red',
-    fontWeight: 'bold',
-  },
-  controls: {
-    backgroundColor: '#f9f9f9',
-    padding: '20px',
-    borderRadius: '8px',
-    marginBottom: '20px',
-  },
-  inputGroup: {
-    marginBottom: '10px',
-  },
-  input: {
-    marginLeft: '10px',
-    padding: '5px',
-    width: '200px',
-  },
-  buttons: {
+    minHeight: '100vh',
+    backgroundColor: '#FAFAFA',
     display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap',
-    marginTop: '15px',
+    alignItems: 'center',
+    padding: '20px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   },
-  button: {
-    padding: '8px 12px',
-    backgroundColor: '#007bff',
-    color: 'white',
+  
+  content: {
+    width: '100%',
+    maxWidth: '400px',
+    margin: '0 auto',
+  },
+  
+  hero: {
+    textAlign: 'center',
+    marginBottom: '40px',
+  },
+  
+  logoContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '12px',
+    marginBottom: '16px',
+  },
+  
+  logo: {
+    fontSize: '40px',
+    background: 'linear-gradient(135deg, #667eea, #764ba2)',
+    borderRadius: '20px',
+    width: '60px',
+    height: '60px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)',
+  },
+  
+  title: {
+    fontSize: '36px',
+    fontWeight: '800',
+    color: '#262626',
+    margin: 0,
+    letterSpacing: '-1px',
+  },
+  
+  subtitle: {
+    fontSize: '18px',
+    color: '#8E8E93',
+    margin: '0 0 32px 0',
+    fontWeight: '400',
+    lineHeight: '1.4',
+  },
+  
+  features: {
+    display: 'flex',
+    justifyContent: 'center',
+    gap: '32px',
+    marginBottom: '20px',
+  },
+  
+  feature: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  
+  featureIcon: {
+    fontSize: '24px',
+    marginBottom: '4px',
+  },
+  
+  authCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: '16px',
+    padding: '32px 24px',
+    boxShadow: '0 4px 24px rgba(0, 0, 0, 0.06)',
+    border: '1px solid #F0F0F0',
+  },
+  
+  authHeader: {
+    textAlign: 'center',
+    marginBottom: '32px',
+  },
+  
+  authTitle: {
+    fontSize: '24px',
+    fontWeight: '700',
+    color: '#262626',
+    margin: '0 0 8px 0',
+  },
+  
+  authSubtitle: {
+    fontSize: '16px',
+    color: '#8E8E93',
+    margin: 0,
+  },
+  
+  form: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '20px',
+    marginBottom: '24px',
+  },
+  
+  inputGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  
+  label: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#262626',
+  },
+  
+  input: {
+    padding: '16px',
+    border: '2px solid #F0F0F0',
+    borderRadius: '12px',
+    fontSize: '16px',
+    outline: 'none',
+    transition: 'all 0.2s ease',
+    backgroundColor: '#FAFAFA',
+    fontFamily: 'inherit',
+  },
+  
+  submitButton: {
+    background: 'linear-gradient(135deg, #667eea, #764ba2)',
+    color: '#FFFFFF',
     border: 'none',
-    borderRadius: '4px',
+    borderRadius: '12px',
+    padding: '16px',
+    fontSize: '16px',
+    fontWeight: '600',
     cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    boxShadow: '0 4px 16px rgba(102, 126, 234, 0.3)',
+    marginTop: '8px',
   },
-  logs: {
-    backgroundColor: '#f0f0f0',
-    padding: '15px',
+  
+  loadingContent: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '12px',
+  },
+  
+  spinner: {
+    width: '16px',
+    height: '16px',
+    border: '2px solid rgba(255, 255, 255, 0.3)',
+    borderTop: '2px solid white',
+    borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
+  },
+  
+  error: {
+    color: '#FF3B30',
+    fontSize: '14px',
+    padding: '12px 16px',
+    backgroundColor: '#FFF5F5',
+    border: '1px solid #FFEBEE',
     borderRadius: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
   },
-  logContainer: {
-    maxHeight: '400px',
-    overflowY: 'auto',
-    backgroundColor: 'white',
-    padding: '10px',
-    borderRadius: '4px',
+  
+  errorIcon: {
+    fontSize: '16px',
   },
-  logEntry: {
-    padding: '2px 0',
-    fontSize: '12px',
+  
+  switchSection: {
+    textAlign: 'center',
+    paddingTop: '20px',
+    borderTop: '1px solid #F0F0F0',
   },
-  timestamp: {
-    color: '#666',
-    marginRight: '10px',
+  
+  switchText: {
+    color: '#8E8E93',
+    fontSize: '14px',
+    margin: '0 0 12px 0',
+  },
+  
+  switchButton: {
+    background: 'none',
+    border: 'none',
+    color: '#007AFF',
+    cursor: 'pointer',
+    fontSize: '16px',
+    fontWeight: '600',
+    transition: 'color 0.2s ease',
   },
 };
+
+// Add input focus styles
+const inputStyleSheet = document.createElement("style");
+inputStyleSheet.innerText = `
+  input:focus {
+    border-color: #007AFF !important;
+    background-color: #FFFFFF !important;
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1) !important;
+  }
+  
+  button:active {
+    transform: scale(0.98);
+  }
+  
+  @media (max-width: 480px) {
+    .auth-card {
+      margin: 0 -4px;
+    }
+  }
+`;
+document.head.appendChild(inputStyleSheet);

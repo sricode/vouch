@@ -117,16 +117,23 @@ export default function Friends() {
         const cleanHandle = rawInput.replace('@', '').split('@')[0]; // Get part before @
         console.log('Strategy 2: Searching by handle:', cleanHandle);
         
-        const handleQuery = query(
-          collection(db, 'users'),
-          where('handle', '==', cleanHandle)
-        );
-        const handleSnapshot = await getDocs(handleQuery);
-        
-        if (!handleSnapshot.empty) {
-          foundUser = handleSnapshot.docs[0].data();
-          searchEmail = foundUser.email;
-          console.log('Found by handle:', foundUser);
+        try {
+          const handleQuery = query(
+            collection(db, 'users'),
+            where('handle', '==', cleanHandle)
+          );
+          console.log('Executing handle query...');
+          const handleSnapshot = await getDocs(handleQuery);
+          console.log('Handle query results:', handleSnapshot.size, 'documents');
+          
+          if (!handleSnapshot.empty) {
+            foundUser = handleSnapshot.docs[0].data();
+            searchEmail = foundUser.email;
+            console.log('Found by handle:', foundUser);
+          }
+        } catch (handleError) {
+          console.error('Handle search error:', handleError);
+          throw handleError; // Re-throw to be caught by main catch block
         }
       }
       
@@ -180,7 +187,18 @@ export default function Friends() {
       }
     } catch (error) {
       console.error('Error searching for user:', error);
-      setMessage('❌ Error searching for user');
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      console.error('Full error:', error);
+      
+      // Show more specific error message
+      if (error.code === 'permission-denied') {
+        setMessage('❌ Permission denied - check Firestore rules');
+      } else if (error.code === 'unavailable') {
+        setMessage('❌ Database temporarily unavailable - try again');
+      } else {
+        setMessage(`❌ Error searching: ${error.message}`);
+      }
     } finally {
       setLoading(false);
     }
