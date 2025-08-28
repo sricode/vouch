@@ -1,9 +1,8 @@
-// src/components/AskRecommendation.js - Complete version with bidirectional comments
+// src/components/AskRecommendation.js
 import { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import RespondToRequest from './RespondToRequest';
-import CommentsSystem from './CommentsSystem';
 
 export default function AskRecommendation() {
   const [question, setQuestion] = useState('');
@@ -12,11 +11,10 @@ export default function AskRecommendation() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
   const [myRequests, setMyRequests] = useState([]);
+  const [incomingRequests, setIncomingRequests] = useState([]);
   const [friends, setFriends] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [showResponseModal, setShowResponseModal] = useState(false);
-  const [showCommentsModal, setShowCommentsModal] = useState(false);
-  const [selectedCommentContext, setSelectedCommentContext] = useState(null);
 
   const currentUser = auth.currentUser;
   const userHandle = currentUser?.email.split('@')[0];
@@ -54,10 +52,11 @@ export default function AskRecommendation() {
     return unsubscribeFriends;
   }, [currentUser]);
 
-  // Load my requests only
+  // Load my requests
   useEffect(() => {
     if (!currentUser) return;
 
+    // Simplified query - get all requests, filter in JavaScript
     const myRequestsQuery = query(
       collection(db, 'recommendation_requests'),
       orderBy('timestamp', 'desc')
@@ -69,6 +68,7 @@ export default function AskRecommendation() {
         ...doc.data()
       }));
       
+      // Filter to only my requests
       const myRequests = allRequests.filter(req => 
         req.requesterEmail === currentUser.email
       );
@@ -78,6 +78,36 @@ export default function AskRecommendation() {
 
     return unsubscribeMyRequests;
   }, [currentUser]);
+
+  // Load incoming requests (from friends)
+  useEffect(() => {
+    if (!currentUser || friends.length === 0) return;
+
+    const friendEmails = friends.map(f => f.email);
+    
+    // Simplified query - get all requests, filter in JavaScript
+    const incomingQuery = query(
+      collection(db, 'recommendation_requests'),
+      orderBy('timestamp', 'desc')
+    );
+
+    const unsubscribeIncoming = onSnapshot(incomingQuery, (snapshot) => {
+      const allRequests = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        requesterHandle: doc.data().requesterEmail.split('@')[0]
+      }));
+      
+      // Filter to only requests from friends that are still open
+      const friendRequests = allRequests.filter(req => 
+        friendEmails.includes(req.requesterEmail) && req.status === 'open'
+      );
+      
+      setIncomingRequests(friendRequests);
+    });
+
+    return unsubscribeIncoming;
+  }, [currentUser, friends]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -91,12 +121,13 @@ export default function AskRecommendation() {
         description: description.trim(),
         requesterEmail: currentUser.email,
         requesterHandle: userHandle,
-        status: 'open',
-        responses: [],
+        status: 'open', // open, closed
+        responses: [], // Will store friend responses
         createdAt: new Date(),
         timestamp: Date.now()
       });
 
+      // Reset form
       setQuestion('');
       setDescription('');
       setCategory('products');
@@ -110,17 +141,6 @@ export default function AskRecommendation() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleOpenComments = (requestId, responseIndex) => {
-    console.log('Opening comments for:', requestId, 'response:', responseIndex);
-    setSelectedCommentContext({ requestId, responseIndex });
-    setShowCommentsModal(true);
-  };
-
-  const handleCloseComments = () => {
-    setShowCommentsModal(false);
-    setSelectedCommentContext(null);
   };
 
   const getCategoryEmoji = (category) => {
@@ -240,10 +260,48 @@ export default function AskRecommendation() {
         </form>
       </div>
 
-      {/* Friends' Requests - MOVED TO ACTIVITY TAB */}
-      {/* All friend requests now appear in the Activity tab for better organization */}
+      {/* Friends' Requests */}
+      {incomingRequests.length > 0 && (
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>💬 Friends Need Your Help ({incomingRequests.length})</h3>
+          {incomingRequests.map(request => (
+            <div key={request.id} style={styles.requestCard}>
+              <div style={styles.requestHeader}>
+                <div style={styles.requestInfo}>
+                  <span style={styles.username}>@{request.requesterHandle} asks:</span>
+                  <span style={styles.category}>
+                    {getCategoryEmoji(request.category)} {request.category}
+                  </span>
+                </div>
+                <span style={styles.date}>
+                  {formatDate(request.timestamp)}
+                </span>
+              </div>
+              
+              <div style={styles.requestBody}>
+                <h4 style={styles.requestQuestion}>{request.question}</h4>
+                {request.description && (
+                  <p style={styles.requestDescription}>{request.description}</p>
+                )}
+              </div>
+              
+              <div style={styles.requestActions}>
+                <button 
+                  style={styles.helpButton}
+                  onClick={() => {
+                    setSelectedRequest(request);
+                    setShowResponseModal(true);
+                  }}
+                >
+                  💡 Help with recommendation
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
-      {/* My Requests - Enhanced with Comments */}
+      {/* My Requests */}
       <div style={styles.section}>
         <h3 style={styles.sectionTitle}>📋 My Requests ({myRequests.length})</h3>
         {myRequests.length === 0 ? (
@@ -282,12 +340,12 @@ export default function AskRecommendation() {
                   📬 {request.responses?.length || 0} response{(request.responses?.length || 0) !== 1 ? 's' : ''} from friends
                 </div>
                 
-                {/* Enhanced responses with comment functionality */}
+                {/* Show responses if any */}
                 {request.responses && request.responses.length > 0 && (
                   <div style={styles.responsesSection}>
                     <h5 style={styles.responsesTitle}>💡 Friend Recommendations:</h5>
-                    {request.responses.map((response, responseIndex) => (
-                      <div key={responseIndex} style={styles.responseCard}>
+                    {request.responses.map((response, index) => (
+                      <div key={index} style={styles.responseCard}>
                         <div style={styles.responseHeader}>
                           <span style={styles.responderName}>@{response.responderHandle}</span>
                           <div style={styles.responseRating}>
@@ -298,18 +356,8 @@ export default function AskRecommendation() {
                         {response.notes && (
                           <p style={styles.responseNotes}>"{response.notes}"</p>
                         )}
-                        
-                        {/* Enhanced response actions with comments */}
-                        <div style={styles.responseActions}>
-                          <div style={styles.responseDate}>
-                            {formatDate(response.timestamp)}
-                          </div>
-                          <button 
-                            style={styles.commentButton}
-                            onClick={() => handleOpenComments(request.id, responseIndex)}
-                          >
-                            💬 Ask follow-up
-                          </button>
+                        <div style={styles.responseDate}>
+                          {formatDate(response.timestamp)}
                         </div>
                       </div>
                     ))}
@@ -333,15 +381,6 @@ export default function AskRecommendation() {
             setSuccess('✅ Your recommendation has been sent!');
             setTimeout(() => setSuccess(''), 3000);
           }}
-        />
-      )}
-
-      {/* Comments Modal */}
-      {showCommentsModal && selectedCommentContext && (
-        <CommentsSystem
-          requestId={selectedCommentContext.requestId}
-          responseIndex={selectedCommentContext.responseIndex}
-          onClose={handleCloseComments}
         />
       )}
     </div>
@@ -604,34 +643,10 @@ const styles = {
     fontStyle: 'italic',
     margin: '0 0 6px 0'
   },
-  
-  // Enhanced response actions with comments
-  responseActions: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: '8px',
-    paddingTop: '8px',
-    borderTop: '1px solid #f0f0f0',
-  },
-  
   responseDate: {
     fontSize: '11px',
     color: '#999'
   },
-  
-  commentButton: {
-    padding: '4px 12px',
-    backgroundColor: '#007AFF',
-    color: 'white',
-    border: 'none',
-    borderRadius: '12px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: '500',
-    transition: 'all 0.2s ease',
-  },
-  
   empty: {
     textAlign: 'center',
     color: '#666',

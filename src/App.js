@@ -9,6 +9,7 @@ import Friends from './components/Friends';
 import AskRecommendation from './components/AskRecommendation';
 import SearchRecommendations from './components/SearchRecommendations';
 import UserMigration from './components/UserMigration';
+import ActivityFeed from './components/ActivityFeed';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -55,6 +56,7 @@ function App() {
     { id: 'feed', icon: '🏠', label: 'Home' },
     { id: 'search', icon: '🔍', label: 'Discover' },
     { id: 'create', icon: '➕', label: 'Share' },
+    { id: 'activity', icon: '🔔', label: 'Activity' },
     { id: 'ask', icon: '💭', label: 'Ask' },
     { id: 'friends', icon: '👥', label: 'Friends' },
   ];
@@ -88,6 +90,7 @@ function App() {
           {currentTab === 'feed' && <RecommendationsFeed />}
           {currentTab === 'search' && <SearchRecommendations />}
           {currentTab === 'create' && <CreateRecommendation />}
+          {currentTab === 'activity' && <ActivityFeed />}
           {currentTab === 'ask' && <AskRecommendation />}
           {currentTab === 'friends' && <Friends />}
         </div>

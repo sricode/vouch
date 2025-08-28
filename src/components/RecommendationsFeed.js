@@ -1,15 +1,20 @@
-// src/components/RecommendationsFeed.js - Modern Mobile Design
+// src/components/RecommendationsFeed.js - With comments support
 import { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
-import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, where, getDocs } from 'firebase/firestore';
+import CommentsSystem from './CommentsSystem';
 
 export default function RecommendationsFeed() {
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [friends, setFriends] = useState([]);
+  const [showCommentsModal, setShowCommentsModal] = useState(false);
+  const [selectedCommentContext, setSelectedCommentContext] = useState(null);
+  const [recommendationRequests, setRecommendationRequests] = useState([]);
 
   const currentUser = auth.currentUser;
+  const getUserHandle = (email) => email ? email.split('@')[0] : '';
 
   // Load friends first
   useEffect(() => {
@@ -36,6 +41,26 @@ export default function RecommendationsFeed() {
     });
 
     return unsubscribeFriends;
+  }, [currentUser]);
+
+  // Load recommendation requests to match responses with comments
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const requestsQuery = query(
+      collection(db, 'recommendation_requests'),
+      orderBy('timestamp', 'desc')
+    );
+
+    const unsubscribeRequests = onSnapshot(requestsQuery, (snapshot) => {
+      const requests = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setRecommendationRequests(requests);
+    });
+
+    return unsubscribeRequests;
   }, [currentUser]);
 
   // Load recommendations
@@ -67,6 +92,36 @@ export default function RecommendationsFeed() {
 
     return unsubscribe;
   }, [friends, filter]);
+
+  // Find if a recommendation was given in response to a request
+  const findRecommendationContext = (recommendation) => {
+    for (const request of recommendationRequests) {
+      if (request.responses) {
+        for (let i = 0; i < request.responses.length; i++) {
+          const response = request.responses[i];
+          if (response.responderEmail === recommendation.userEmail && 
+              response.recommendation === recommendation.title) {
+            return {
+              requestId: request.id,
+              responseIndex: i,
+              requesterHandle: request.requesterHandle
+            };
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  const handleOpenComments = (requestId, responseIndex) => {
+    setSelectedCommentContext({ requestId, responseIndex });
+    setShowCommentsModal(true);
+  };
+
+  const handleCloseComments = () => {
+    setShowCommentsModal(false);
+    setSelectedCommentContext(null);
+  };
 
   const getStarDisplay = (rating) => {
     return '⭐'.repeat(rating);
@@ -162,56 +217,88 @@ export default function RecommendationsFeed() {
         </div>
       ) : (
         <div style={styles.feed}>
-          {recommendations.map(rec => (
-            <div key={rec.id} style={styles.card}>
-              {/* Card Header */}
-              <div style={styles.cardHeader}>
-                <div style={styles.userInfo}>
-                  <div style={styles.avatar}>
-                    {rec.userHandle.charAt(0).toUpperCase()}
+          {recommendations.map(rec => {
+            const context = findRecommendationContext(rec);
+            const isMyRecommendation = rec.userEmail === currentUser?.email;
+            
+            return (
+              <div key={rec.id} style={styles.card}>
+                {/* Card Header */}
+                <div style={styles.cardHeader}>
+                  <div style={styles.userInfo}>
+                    <div style={styles.avatar}>
+                      {rec.userHandle.charAt(0).toUpperCase()}
+                    </div>
+                    <div style={styles.userDetails}>
+                      <span style={styles.username}>@{rec.userHandle}</span>
+                      <span style={styles.timestamp}>{formatDate(rec.timestamp)}</span>
+                    </div>
                   </div>
-                  <div style={styles.userDetails}>
-                    <span style={styles.username}>@{rec.userHandle}</span>
-                    <span style={styles.timestamp}>{formatDate(rec.timestamp)}</span>
+                  
+                  <div 
+                    style={{
+                      ...styles.categoryBadge,
+                      backgroundColor: getCategoryColor(rec.category) + '20',
+                      color: getCategoryColor(rec.category),
+                    }}
+                  >
+                    <span>{getCategoryEmoji(rec.category)}</span>
+                    <span style={styles.categoryText}>{rec.category}</span>
                   </div>
                 </div>
                 
-                <div 
-                  style={{
-                    ...styles.categoryBadge,
-                    backgroundColor: getCategoryColor(rec.category) + '20',
-                    color: getCategoryColor(rec.category),
-                  }}
-                >
-                  <span>{getCategoryEmoji(rec.category)}</span>
-                  <span style={styles.categoryText}>{rec.category}</span>
-                </div>
-              </div>
-              
-              {/* Card Content */}
-              <div style={styles.cardContent}>
-                <h3 style={styles.recTitle}>{rec.title}</h3>
-                
-                <div style={styles.rating}>
-                  <span style={styles.stars}>{getStarDisplay(rec.rating)}</span>
-                  <span style={styles.ratingText}>({rec.rating}/5)</span>
+                {/* Card Content */}
+                <div style={styles.cardContent}>
+                  <h3 style={styles.recTitle}>{rec.title}</h3>
+                  
+                  <div style={styles.rating}>
+                    <span style={styles.stars}>{getStarDisplay(rec.rating)}</span>
+                    <span style={styles.ratingText}>({rec.rating}/5)</span>
+                  </div>
+                  
+                  {rec.notes && (
+                    <p style={styles.notes}>{rec.notes}</p>
+                  )}
                 </div>
                 
-                {rec.notes && (
-                  <p style={styles.notes}>{rec.notes}</p>
-                )}
-              </div>
-              
-              {/* Card Footer */}
-              <div style={styles.cardFooter}>
-                <div style={styles.vouchBadge}>
-                  <span style={styles.vouchIcon}>✨</span>
-                  <span style={styles.vouchText}>Vouched by @{rec.userHandle}</span>
+                {/* Card Footer with Enhanced Actions */}
+                <div style={styles.cardFooter}>
+                  <div style={styles.vouchBadge}>
+                    <span style={styles.vouchIcon}>✨</span>
+                    <span style={styles.vouchText}>Vouched by @{rec.userHandle}</span>
+                  </div>
+                  
+                  {/* NEW: Comment Access for Recommendations given in response to requests */}
+                  {context && (
+                    <div style={styles.commentSection}>
+                      {isMyRecommendation ? (
+                        <button 
+                          style={styles.replyButton}
+                          onClick={() => handleOpenComments(context.requestId, context.responseIndex)}
+                        >
+                          💬 View chat
+                        </button>
+                      ) : (
+                        <span style={styles.responseContext}>
+                          Response to @{context.requesterHandle}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+      )}
+
+      {/* Comments Modal */}
+      {showCommentsModal && selectedCommentContext && (
+        <CommentsSystem
+          requestId={selectedCommentContext.requestId}
+          responseIndex={selectedCommentContext.responseIndex}
+          onClose={handleCloseComments}
+        />
       )}
     </div>
   );
@@ -443,6 +530,9 @@ const styles = {
   },
   
   cardFooter: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingTop: '12px',
     borderTop: '1px solid #F2F2F7',
   },
@@ -461,6 +551,30 @@ const styles = {
     fontSize: '13px',
     color: '#8E8E93',
     fontWeight: '500',
+  },
+  
+  // NEW: Comment-related styles
+  commentSection: {
+    display: 'flex',
+    alignItems: 'center',
+  },
+  
+  replyButton: {
+    padding: '6px 12px',
+    backgroundColor: '#007AFF',
+    color: 'white',
+    border: 'none',
+    borderRadius: '12px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: '500',
+    transition: 'all 0.2s ease',
+  },
+  
+  responseContext: {
+    fontSize: '11px',
+    color: '#8E8E93',
+    fontStyle: 'italic',
   },
 };
 
