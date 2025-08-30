@@ -1,4 +1,4 @@
-// src/App.js - Modern Mobile-First Design
+// src/App.js - Updated with UnifiedFeed
 import { useState, useEffect } from 'react';
 import { auth } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -10,6 +10,7 @@ import AskRecommendation from './components/AskRecommendation';
 import SearchRecommendations from './components/SearchRecommendations';
 import UserMigration from './components/UserMigration';
 import ActivityFeed from './components/ActivityFeed';
+import UnifiedFeed from './components/UnifiedFeed'; // ADD THIS LINE
 
 function App() {
   const [user, setUser] = useState(null);
@@ -52,11 +53,11 @@ function App() {
 
   const userHandle = getUserHandle(user.email);
 
+  // Updated tabs - Activity is now merged into Home
   const tabs = [
     { id: 'feed', icon: '🏠', label: 'Home' },
     { id: 'search', icon: '🔍', label: 'Discover' },
     { id: 'create', icon: '➕', label: 'Share' },
-    { id: 'activity', icon: '🔔', label: 'Activity' },
     { id: 'ask', icon: '💭', label: 'Ask' },
     { id: 'friends', icon: '👥', label: 'Friends' },
   ];
@@ -74,6 +75,7 @@ function App() {
           </div>
           
           <div style={styles.userSection}>
+            <span style={styles.userHandle}>@{userHandle}</span>
             <div style={styles.userAvatar}>
               {userHandle.charAt(0).toUpperCase()}
             </div>
@@ -87,10 +89,9 @@ function App() {
       {/* Main Content */}
       <main style={styles.mainContent}>
         <div style={styles.contentWrapper}>
-          {currentTab === 'feed' && <RecommendationsFeed />}
+          {currentTab === 'feed' && <UnifiedFeed />}
           {currentTab === 'search' && <SearchRecommendations />}
           {currentTab === 'create' && <CreateRecommendation />}
-          {currentTab === 'activity' && <ActivityFeed />}
           {currentTab === 'ask' && <AskRecommendation />}
           {currentTab === 'friends' && <Friends />}
         </div>
@@ -213,7 +214,13 @@ const styles = {
   userSection: {
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
+    gap: '8px',
+  },
+  
+  userHandle: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#262626',
   },
   
   userAvatar: {
